@@ -359,6 +359,12 @@ final class ArchiveLoader {
         }
 
         @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            Objects.checkFromIndexSize(offset, length, buffer.length);
+            return in.read(buffer, offset, length);
+        }
+
+        @Override
         public void close() throws IOException {
             IOException failure = null;
             try {
