@@ -208,10 +208,7 @@ final class ArchiveLoader {
                     return new BoundedArchiveEntryInputStream(tarInputStream, entry.getSize());
                 }
             }
-        } catch (IOException exception) {
-            closeQuietly(tarInputStream);
-            throw exception;
-        } catch (RuntimeException exception) {
+        } catch (IOException | RuntimeException exception) {
             closeQuietly(tarInputStream);
             throw exception;
         }
@@ -235,10 +232,7 @@ final class ArchiveLoader {
             if (entry != null && entry.hasStream() && !entry.isDirectory()) {
                 return new CloseOnCloseInputStream(sevenZFile.getInputStream(entry), sevenZFile);
             }
-        } catch (IOException exception) {
-            closeQuietly(sevenZFile);
-            throw exception;
-        } catch (RuntimeException exception) {
+        } catch (IOException | RuntimeException exception) {
             closeQuietly(sevenZFile);
             throw exception;
         }
