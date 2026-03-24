@@ -14,6 +14,7 @@ final class ArchiveNode {
     private final Map<String, ArchiveNode> children;
     private final boolean directory;
     private final String entryName;
+    private int archiveEntryIndex;
     private long size;
     private FileTime lastModifiedTime;
 
@@ -23,6 +24,7 @@ final class ArchiveNode {
         this.directory = directory;
         this.children = directory ? new LinkedHashMap<>() : Collections.emptyMap();
         this.entryName = buildEntryName(name, parent);
+        this.archiveEntryIndex = -1;
         this.size = 0L;
         this.lastModifiedTime = FileTime.fromMillis(0L);
     }
@@ -44,8 +46,9 @@ final class ArchiveNode {
         return directoryNode;
     }
 
-    ArchiveNode putFile(String childName, long size, FileTime modifiedTime) {
+    ArchiveNode putFile(String childName, long size, FileTime modifiedTime, int archiveEntryIndex) {
         ArchiveNode fileNode = new ArchiveNode(childName, this, false);
+        fileNode.archiveEntryIndex = archiveEntryIndex;
         fileNode.size = Math.max(0L, size);
         fileNode.lastModifiedTime = modifiedTime;
         children.put(childName, fileNode);
@@ -74,6 +77,10 @@ final class ArchiveNode {
 
     String entryName() {
         return entryName;
+    }
+
+    int archiveEntryIndex() {
+        return archiveEntryIndex;
     }
 
     void markDirectory(FileTime modifiedTime) {

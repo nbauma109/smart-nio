@@ -16,9 +16,10 @@ This project extends that model to other archive families, starting with read-on
 The current implementation provides a read-only `FileSystemProvider`.
 
 Like the JDK ZIP filesystem provider, mounting an archive builds an in-memory entry index up front while leaving file
-contents lazy. For tar-based archives this index requires a linear pass over archive headers because there is no ZIP-like
-central directory. File contents are reopened and streamed on demand when you access a file through `Files.newInputStream`,
-`Files.readString`, or `Files.newByteChannel`.
+contents lazy. For tar-based archives this index requires a linear pass over archive headers because tar does not provide
+a ZIP-style central directory. For `7z`, `smart-nio` uses the format's structured header metadata to index entries and
+reopen a specific entry on demand. File contents are reopened and streamed when you access a file through
+`Files.newInputStream`, `Files.readString`, or `Files.newByteChannel`.
 
 Supported archive families:
 

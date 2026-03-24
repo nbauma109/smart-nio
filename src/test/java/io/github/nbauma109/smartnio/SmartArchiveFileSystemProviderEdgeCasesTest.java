@@ -14,6 +14,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.file.AccessMode;
 import java.nio.file.DirectoryIteratorException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.FileSystemAlreadyExistsException;
 import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.NoSuchFileException;
@@ -28,6 +29,8 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class SmartArchiveFileSystemProviderEdgeCasesTest {
 
@@ -127,6 +130,47 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
             assertThrows(ReadOnlyFileSystemException.class, () -> provider.setAttribute(hello, "basic:size", 1L));
             assertThrows(IllegalArgumentException.class, () -> provider.toSmartPath(tempDir));
         }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"sample.tar", "sample.7z"})
+    void readingEntriesDoesNotCloseMountedFileSystem(String archiveName) throws Exception {
+        SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
+        Path archive = ArchiveTestFixtures.archivePath(archiveName);
+
+        try (SmartArchiveFileSystem fileSystem = (SmartArchiveFileSystem) provider.newFileSystem(archive, Map.of())) {
+            Path hello = fileSystem.getPath("/docs/hello.txt");
+
+            try (var inputStream = provider.newInputStream(hello)) {
+                assertEquals("hello from archive", new String(inputStream.readAllBytes()));
+            }
+            assertTrue(fileSystem.isOpen());
+            assertEquals("deep-value", Files.readString(fileSystem.getPath("/docs/nested/deep.txt")));
+
+            try (SeekableByteChannel channel = provider.newByteChannel(hello, java.util.Set.of(StandardOpenOption.READ))) {
+                assertTrue(channel.size() > 0L);
+            }
+            assertTrue(fileSystem.isOpen());
+            assertEquals(fileSystem, provider.getFileSystem(ArchiveTestFixtures.entryUri(archiveName, "/docs/hello.txt")));
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"sample.tar", "sample.7z"})
+    void uriReadsKeepAutoMountedFileSystemOpenUntilExplicitClose(String archiveName) throws Exception {
+        SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
+        URI helloUri = ArchiveTestFixtures.entryUri(archiveName, "/docs/hello.txt");
+
+        assertEquals("hello from archive", Files.readString(provider.getPath(helloUri)));
+
+        SmartArchiveFileSystem fileSystem = (SmartArchiveFileSystem) provider.getFileSystem(helloUri);
+        assertTrue(fileSystem.isOpen());
+        assertEquals("root-value", Files.readString(fileSystem.getPath("/root.txt")));
+
+        fileSystem.close();
+
+        assertFalse(fileSystem.isOpen());
+        assertThrows(FileSystemNotFoundException.class, () -> provider.getFileSystem(helloUri));
     }
 
     private static URI uriFor(Path archive, String entry) {
