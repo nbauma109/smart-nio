@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.attribute.BasicFileAttributeView;
@@ -74,17 +75,21 @@ class SmartArchivePathAndFileSystemTest {
              SmartArchiveFileSystem second = ArchiveTestFixtures.openFileSystem("sample.tar.gz")) {
             SmartArchivePath path = (SmartArchivePath) first.getPath("/docs/hello.txt");
             var watchKinds = new java.nio.file.WatchEvent.Kind<?>[]{StandardWatchEventKinds.ENTRY_CREATE};
+            Path relativeHello = first.getPath("docs/hello.txt");
+            Path secondDocs = second.getPath("/docs");
+            Path secondHello = second.getPath("/docs/hello.txt");
+            String invalidPath = "bad" + '\0' + "path";
 
             assertThrows(IllegalArgumentException.class, () -> path.getName(-1));
             assertThrows(IllegalArgumentException.class, () -> path.getName(2));
             assertThrows(IllegalArgumentException.class, () -> path.subpath(1, 1));
-            assertThrows(IllegalArgumentException.class, () -> path.relativize(first.getPath("docs/hello.txt")));
-            assertThrows(IllegalArgumentException.class, () -> path.startsWith(second.getPath("/docs")));
-            assertThrows(IllegalArgumentException.class, () -> path.compareTo(second.getPath("/docs/hello.txt")));
+            assertThrows(IllegalArgumentException.class, () -> path.relativize(relativeHello));
+            assertThrows(IllegalArgumentException.class, () -> path.startsWith(secondDocs));
+            assertThrows(IllegalArgumentException.class, () -> path.compareTo(secondHello));
             assertThrows(UnsupportedOperationException.class, path::toFile);
             assertThrows(UnsupportedOperationException.class, () -> path.register(null, StandardWatchEventKinds.ENTRY_CREATE));
             assertThrows(UnsupportedOperationException.class, () -> path.register(null, watchKinds));
-            assertThrows(InvalidPathException.class, () -> first.getPath("bad" + '\0' + "path"));
+            assertThrows(InvalidPathException.class, () -> first.getPath(invalidPath));
         }
     }
 

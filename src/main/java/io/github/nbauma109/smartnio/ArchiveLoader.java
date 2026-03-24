@@ -359,11 +359,6 @@ final class ArchiveLoader {
         }
 
         @Override
-        public int read(byte[] buffer, int offset, int length) throws IOException {
-            return super.read(buffer, offset, length);
-        }
-
-        @Override
         public void close() throws IOException {
             IOException failure = null;
             try {

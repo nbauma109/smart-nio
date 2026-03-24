@@ -43,11 +43,12 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
         Path missing = tempDir.resolve("missing.tar");
         Path archive = ArchiveTestFixtures.archivePath("sample.tar");
         URI helloUri = ArchiveTestFixtures.entryUri("sample.tar", "/docs/hello.txt");
+        Map<String, Object> emptyEnv = Map.of();
 
-        assertThrows(NoSuchFileException.class, () -> provider.newFileSystem(missing, Map.of()));
+        assertThrows(NoSuchFileException.class, () -> provider.newFileSystem(missing, emptyEnv));
 
-        try (var fileSystem = provider.newFileSystem(archive, Map.of())) {
-            assertThrows(FileSystemAlreadyExistsException.class, () -> provider.newFileSystem(archive, Map.of()));
+        try (var fileSystem = provider.newFileSystem(archive, emptyEnv)) {
+            assertThrows(FileSystemAlreadyExistsException.class, () -> provider.newFileSystem(archive, emptyEnv));
             assertEquals(fileSystem, provider.getFileSystem(helloUri));
         }
     }
@@ -104,19 +105,20 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
         try (var fileSystem = provider.newFileSystem(archive, Map.of())) {
             Path docs = fileSystem.getPath("/docs");
             Path hello = fileSystem.getPath("/docs/hello.txt");
+            var readOptions = java.util.Set.of(StandardOpenOption.READ);
+            var writeOptions = java.util.Set.of(StandardOpenOption.WRITE);
 
             assertEquals("hello from archive", new String(provider.newInputStream(hello).readAllBytes()));
             assertThrows(IOException.class, () -> provider.newInputStream(docs));
 
             ByteBuffer buffer = ByteBuffer.allocate(32);
-            try (SeekableByteChannel channel = provider.newByteChannel(hello, java.util.Set.of(StandardOpenOption.READ))) {
+            try (SeekableByteChannel channel = provider.newByteChannel(hello, readOptions)) {
                 channel.read(buffer);
                 assertTrue(channel.position() > 0);
             }
             assertEquals("hello from archive", new String(buffer.array(), 0, "hello from archive".length()));
-            assertThrows(IOException.class, () -> provider.newByteChannel(docs, java.util.Set.of(StandardOpenOption.READ)));
-            assertThrows(ReadOnlyFileSystemException.class,
-                    () -> provider.newByteChannel(hello, java.util.Set.of(StandardOpenOption.WRITE)));
+            assertThrows(IOException.class, () -> provider.newByteChannel(docs, readOptions));
+            assertThrows(ReadOnlyFileSystemException.class, () -> provider.newByteChannel(hello, writeOptions));
         }
     }
 
