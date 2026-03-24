@@ -3,10 +3,18 @@ package io.github.nbauma109.smartnio;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 
+/**
+ * Immutable {@link BasicFileAttributes} view backed by archive metadata.
+ */
 final class ArchiveFileAttributes implements BasicFileAttributes {
 
     private final ArchiveNode node;
 
+    /**
+     * Creates a file-attribute snapshot for a single archive entry.
+     *
+     * @param node indexed archive entry
+     */
     ArchiveFileAttributes(ArchiveNode node) {
         this.node = node;
     }

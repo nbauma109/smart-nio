@@ -17,11 +17,24 @@ import java.util.List;
 import java.util.Objects;
 import java.util.StringJoiner;
 
+/**
+ * Provider-specific {@link Path} implementation for mounted archive entries.
+ * <p>
+ * Paths use {@code /} as their separator, normalize {@code .} and {@code ..} segments eagerly, and are always scoped
+ * to a single {@link SmartArchiveFileSystem}.
+ * </p>
+ */
 final class SmartArchivePath implements Path {
 
     private final SmartArchiveFileSystem fileSystem;
     private final String normalizedPath;
 
+    /**
+     * Creates a normalized archive path.
+     *
+     * @param fileSystem owning filesystem
+     * @param rawPath user-supplied path string
+     */
     SmartArchivePath(SmartArchiveFileSystem fileSystem, String rawPath) {
         this.fileSystem = Objects.requireNonNull(fileSystem, "fileSystem");
         this.normalizedPath = normalize(Objects.requireNonNull(rawPath, "rawPath"));
@@ -246,6 +259,11 @@ final class SmartArchivePath implements Path {
         return normalizedPath;
     }
 
+    /**
+     * Returns the normalized path segments without a leading root marker.
+     *
+     * @return immutable list of path segments
+     */
     List<String> segments() {
         if (normalizedPath.isEmpty() || "/".equals(normalizedPath)) {
             return List.of();
@@ -254,10 +272,21 @@ final class SmartArchivePath implements Path {
         return List.of(value.split("/"));
     }
 
+    /**
+     * Returns the absolute normalized representation of this path.
+     *
+     * @return absolute path string beginning with {@code /}
+     */
     String absolutePath() {
         return isAbsolute() ? normalizedPath : toAbsolutePath().toString();
     }
 
+    /**
+     * Ensures another path belongs to the same mounted archive filesystem.
+     *
+     * @param path candidate path
+     * @return the cast archive path
+     */
     private SmartArchivePath requireSameFileSystem(Path path) {
         if (!(path instanceof SmartArchivePath other) || !fileSystem.equals(other.fileSystem)) {
             throw new IllegalArgumentException("Path is not associated with this file system: " + path);
@@ -265,6 +294,16 @@ final class SmartArchivePath implements Path {
         return other;
     }
 
+    /**
+     * Normalizes a raw archive path string.
+     * <p>
+     * Backslashes are converted to forward slashes and {@code .}/{@code ..} handling matches standard path semantics
+     * within a read-only mounted archive.
+     * </p>
+     *
+     * @param rawPath raw user-supplied path
+     * @return normalized path string
+     */
     private static String normalize(String rawPath) {
         String sanitized = rawPath.replace('\\', '/');
         boolean absolute = sanitized.startsWith("/");

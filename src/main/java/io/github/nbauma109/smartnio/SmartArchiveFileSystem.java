@@ -11,6 +11,14 @@ import java.util.Collections;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+/**
+ * Read-only {@link FileSystem} implementation backed by a mounted archive.
+ * <p>
+ * The filesystem holds the normalized archive path, a metadata tree of entries, and the provider-side registration used
+ * to find the mount again from provider URIs. Closing the filesystem unregisters the mount but does not happen
+ * implicitly when individual entry streams are closed.
+ * </p>
+ */
 final class SmartArchiveFileSystem extends FileSystem {
 
     private final SmartArchiveFileSystemProvider provider;
@@ -19,6 +27,13 @@ final class SmartArchiveFileSystem extends FileSystem {
     private final SmartArchiveFileStore fileStore;
     private volatile boolean open;
 
+    /**
+     * Creates a mounted archive filesystem.
+     *
+     * @param provider owning provider
+     * @param archivePath normalized archive path on the host filesystem
+     * @param rootNode root of the indexed archive entry tree
+     */
     SmartArchiveFileSystem(SmartArchiveFileSystemProvider provider, Path archivePath, ArchiveNode rootNode) {
         this.provider = provider;
         this.archivePath = archivePath;
@@ -112,10 +127,21 @@ final class SmartArchiveFileSystem extends FileSystem {
         return archivePath;
     }
 
+    /**
+     * Returns the synthetic file store representing the mounted archive.
+     *
+     * @return archive file store
+     */
     SmartArchiveFileStore fileStore() {
         return fileStore;
     }
 
+    /**
+     * Resolves a normalized archive path against the indexed entry tree.
+     *
+     * @param path path inside this filesystem
+     * @return the matching archive node, or {@code null} if no entry exists
+     */
     ArchiveNode lookup(SmartArchivePath path) {
         ensureOpen();
         ArchiveNode current = rootNode;
@@ -134,6 +160,12 @@ final class SmartArchiveFileSystem extends FileSystem {
         }
     }
 
+    /**
+     * Converts a glob expression to the regex understood by {@link Pattern}.
+     *
+     * @param globPattern glob pattern as accepted by {@link #getPathMatcher(String)}
+     * @return regex equivalent for the supported glob subset
+     */
     private String globToRegex(String globPattern) {
         StringBuilder regex = new StringBuilder("^");
         boolean escaping = false;

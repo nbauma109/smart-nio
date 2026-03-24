@@ -5,10 +5,18 @@ import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 
+/**
+ * Read-only {@link BasicFileAttributeView} for archive entries.
+ */
 final class SmartArchiveFileAttributeView implements BasicFileAttributeView {
 
     private final ArchiveNode node;
 
+    /**
+     * Creates an attribute view backed by a single archive node.
+     *
+     * @param node indexed archive entry
+     */
     SmartArchiveFileAttributeView(ArchiveNode node) {
         this.node = node;
     }

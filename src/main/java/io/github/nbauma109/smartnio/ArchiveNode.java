@@ -7,6 +7,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Indexed metadata node representing a directory or regular file inside a mounted archive.
+ * <p>
+ * Nodes form an in-memory tree used for path resolution. They intentionally store metadata only: names, timestamps,
+ * sizes, child relationships, and format-specific lookup hints such as the {@code 7z} entry index.
+ * </p>
+ */
 final class ArchiveNode {
 
     private final String name;
@@ -18,6 +25,13 @@ final class ArchiveNode {
     private long size;
     private FileTime lastModifiedTime;
 
+    /**
+     * Creates a new archive node.
+     *
+     * @param name node name relative to its parent
+     * @param parent parent node, or {@code null} for the root
+     * @param directory whether the node represents a directory
+     */
     private ArchiveNode(String name, ArchiveNode parent, boolean directory) {
         this.name = name;
         this.parent = parent;
@@ -29,10 +43,21 @@ final class ArchiveNode {
         this.lastModifiedTime = FileTime.fromMillis(0L);
     }
 
+    /**
+     * Creates the root node of an indexed archive tree.
+     *
+     * @return root archive node
+     */
     static ArchiveNode root() {
         return new ArchiveNode("", null, true);
     }
 
+    /**
+     * Resolves or creates a child directory node.
+     *
+     * @param childName child directory name
+     * @return existing or newly-created directory node
+     */
     ArchiveNode ensureDirectory(String childName) {
         ArchiveNode existing = children.get(childName);
         if (existing != null) {
@@ -46,6 +71,15 @@ final class ArchiveNode {
         return directoryNode;
     }
 
+    /**
+     * Creates or replaces a regular-file child node.
+     *
+     * @param childName child file name
+     * @param size declared file size in bytes
+     * @param modifiedTime last-modified time
+     * @param archiveEntryIndex format-specific entry index, or {@code -1} when not applicable
+     * @return created file node
+     */
     ArchiveNode putFile(String childName, long size, FileTime modifiedTime, int archiveEntryIndex) {
         ArchiveNode fileNode = new ArchiveNode(childName, this, false);
         fileNode.archiveEntryIndex = archiveEntryIndex;
@@ -79,22 +113,48 @@ final class ArchiveNode {
         return entryName;
     }
 
+    /**
+     * Returns the format-specific entry index used for indexed {@code 7z} reopen logic.
+     *
+     * @return archive entry index, or {@code -1} when the format has no such index
+     */
     int archiveEntryIndex() {
         return archiveEntryIndex;
     }
 
+    /**
+     * Updates a directory node with its last-modified timestamp.
+     *
+     * @param modifiedTime directory modification time
+     */
     void markDirectory(FileTime modifiedTime) {
         this.lastModifiedTime = modifiedTime;
     }
 
+    /**
+     * Returns the immediate child nodes in insertion order.
+     *
+     * @return child nodes
+     */
     Collection<ArchiveNode> children() {
         return children.values();
     }
 
+    /**
+     * Returns a named child node, if present.
+     *
+     * @param childName child name
+     * @return matching child or {@code null}
+     */
     ArchiveNode child(String childName) {
         return children.get(childName);
     }
 
+    /**
+     * Returns the absolute archive path of this node.
+     *
+     * @return absolute path beginning with {@code /}
+     */
     String absolutePath() {
         if (parent == null) {
             return "/";
@@ -105,6 +165,13 @@ final class ArchiveNode {
         return parent.absolutePath() + "/" + name;
     }
 
+    /**
+     * Builds the normalized entry name used to reopen this entry from the source archive.
+     *
+     * @param name node name
+     * @param parent parent node
+     * @return archive entry name relative to the archive root
+     */
     private static String buildEntryName(String name, ArchiveNode parent) {
         Objects.requireNonNull(name, "name");
         if (parent == null || parent.entryName.isEmpty()) {

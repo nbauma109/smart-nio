@@ -34,22 +34,55 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
 
+/**
+ * Read-only {@link FileSystemProvider} implementation for archive-backed filesystems.
+ * <p>
+ * Supported archive families currently include plain tar streams, compressed tar streams recognized by Apache Commons
+ * Compress, and {@code 7z}. The provider follows the same broad lifecycle model as the JDK ZIP filesystem provider:
+ * mounting an archive builds an in-memory index of entries, while file content is opened lazily when a path is read.
+ * </p>
+ * <p>
+ * Filesystems are identified by the custom {@code smartnio:} URI scheme and remain open until
+ * {@link FileSystem#close()} is called explicitly.
+ * </p>
+ */
 public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
 
     private static final String SCHEME = "smartnio";
 
     private final Map<Path, SmartArchiveFileSystem> fileSystems = new ConcurrentHashMap<>();
 
+    /**
+     * Returns the provider URI scheme.
+     *
+     * @return {@code smartnio}
+     */
     @Override
     public String getScheme() {
         return SCHEME;
     }
 
+    /**
+     * Opens an archive filesystem from a provider URI.
+     *
+     * @param uri archive URI using the {@code smartnio:...!/entry} syntax
+     * @param env provider environment, currently unused
+     * @return the mounted archive filesystem
+     * @throws IOException if the archive cannot be opened or indexed
+     */
     @Override
     public FileSystem newFileSystem(URI uri, Map<String, ?> env) throws IOException {
         return newFileSystem(extractArchivePath(uri), env);
     }
 
+    /**
+     * Opens an archive filesystem from a regular {@link Path}.
+     *
+     * @param path archive path on the default filesystem
+     * @param env provider environment, currently unused
+     * @return the mounted archive filesystem
+     * @throws IOException if the archive cannot be opened or indexed
+     */
     @Override
     public FileSystem newFileSystem(Path path, Map<String, ?> env) throws IOException {
         Objects.requireNonNull(path, "path");
@@ -66,6 +99,13 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
         return fileSystem;
     }
 
+    /**
+     * Looks up an already-mounted filesystem by URI.
+     *
+     * @param uri provider URI pointing at an archive
+     * @return the mounted filesystem
+     * @throws FileSystemNotFoundException if the archive is not mounted
+     */
     @Override
     public FileSystem getFileSystem(URI uri) {
         SmartArchiveFileSystem fileSystem = fileSystems.get(extractArchivePath(uri));
@@ -75,6 +115,15 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
         return fileSystem;
     }
 
+    /**
+     * Resolves a provider URI to an archive path.
+     * <p>
+     * If the target archive is not mounted yet, it is mounted automatically and remains open until explicitly closed.
+     * </p>
+     *
+     * @param uri provider URI using the {@code smartnio:...!/entry} syntax
+     * @return the resolved path inside the mounted archive filesystem
+     */
     @Override
     public Path getPath(URI uri) {
         Path archivePath = extractArchivePath(uri);
@@ -90,6 +139,14 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
         return fileSystem.getPath(entryPath == null || entryPath.isBlank() ? "/" : entryPath);
     }
 
+    /**
+     * Opens a lazy input stream for an archive entry.
+     *
+     * @param path archive path to a regular file entry
+     * @param options read-only options; only {@link StandardOpenOption#READ} is accepted
+     * @return a stream for the requested entry
+     * @throws IOException if the entry cannot be read
+     */
     @Override
     public InputStream newInputStream(Path path, OpenOption... options) throws IOException {
         ensureReadOnlyOptions(options);
@@ -101,11 +158,28 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
         return ArchiveLoader.openInputStream(archivePath.getFileSystem().archivePath(), node);
     }
 
+    /**
+     * Always fails because this provider is read-only.
+     *
+     * @throws ReadOnlyFileSystemException always
+     */
     @Override
     public OutputStream newOutputStream(Path path, OpenOption... options) {
         throw new ReadOnlyFileSystemException();
     }
 
+    /**
+     * Opens a seekable read channel for an archive entry.
+     * <p>
+     * The channel is backed by the bytes of the requested entry only, not by the entire archive.
+     * </p>
+     *
+     * @param path archive path to a regular file entry
+     * @param options read-only options; only {@link StandardOpenOption#READ} is accepted
+     * @param attrs ignored file attributes
+     * @return a read-only seekable channel for the requested entry
+     * @throws IOException if the entry cannot be read
+     */
     @Override
     public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options,
                                               FileAttribute<?>... attrs) throws IOException {
@@ -120,6 +194,14 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
         }
     }
 
+    /**
+     * Opens a directory stream for a directory inside the mounted archive.
+     *
+     * @param dir directory path
+     * @param filter optional entry filter
+     * @return a lazily-evaluated directory stream
+     * @throws IOException if the path is not a directory or does not exist
+     */
     @Override
     public DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter)
             throws IOException {
@@ -229,6 +311,12 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
         throw new ReadOnlyFileSystemException();
     }
 
+    /**
+     * Casts a generic NIO path to the provider-specific path implementation.
+     *
+     * @param path path expected to belong to this provider
+     * @return the provider-specific archive path
+     */
     SmartArchivePath toSmartPath(Path path) {
         if (!(path instanceof SmartArchivePath archivePath)) {
             throw new IllegalArgumentException("Path is not managed by " + getScheme() + ": " + path);
@@ -236,6 +324,11 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
         return archivePath;
     }
 
+    /**
+     * Removes a filesystem from the provider's mount registry.
+     *
+     * @param archivePath normalized archive path used as the mount key
+     */
     void unregister(Path archivePath) {
         fileSystems.remove(archivePath.toAbsolutePath().normalize());
     }

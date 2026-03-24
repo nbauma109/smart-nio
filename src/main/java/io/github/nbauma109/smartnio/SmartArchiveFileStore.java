@@ -4,10 +4,22 @@ import java.nio.file.FileStore;
 import java.nio.file.attribute.FileAttributeView;
 import java.nio.file.attribute.FileStoreAttributeView;
 
+/**
+ * Synthetic {@link FileStore} describing a mounted archive filesystem.
+ * <p>
+ * The provider currently exposes only a minimal read-only file store view and does not attempt to report host storage
+ * capacity or archive-specific quotas.
+ * </p>
+ */
 final class SmartArchiveFileStore extends FileStore {
 
     private final String name;
 
+    /**
+     * Creates a file store view for a mounted archive.
+     *
+     * @param name display name, typically the archive file name
+     */
     SmartArchiveFileStore(String name) {
         this.name = name;
     }
