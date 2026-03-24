@@ -38,19 +38,19 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
     void providerHandlesMountLifecycleAndUriResolution() throws Exception {
         SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
         Path missing = tempDir.resolve("missing.tar");
-        Path archive = tempDir.resolve("sample.tar");
-        ArchiveTestFixtures.createTarArchive(archive, false);
+        Path archive = ArchiveTestFixtures.archivePath("sample.tar");
 
         assertThrows(NoSuchFileException.class, () -> provider.newFileSystem(missing, Map.of()));
 
         try (var fileSystem = provider.newFileSystem(archive, Map.of())) {
             assertThrows(FileSystemAlreadyExistsException.class, () -> provider.newFileSystem(archive, Map.of()));
-            assertEquals(fileSystem, provider.getFileSystem(uriFor(archive, "/docs/hello.txt")));
+            assertEquals(fileSystem, provider.getFileSystem(ArchiveTestFixtures.entryUri("sample.tar", "/docs/hello.txt")));
         }
 
-        assertThrows(FileSystemNotFoundException.class, () -> provider.getFileSystem(uriFor(archive, "/docs/hello.txt")));
+        assertThrows(FileSystemNotFoundException.class,
+                () -> provider.getFileSystem(ArchiveTestFixtures.entryUri("sample.tar", "/docs/hello.txt")));
         assertEquals("/", provider.getPath(URI.create("smartnio:" + archive.toUri())).toString());
-        assertEquals("/docs/hello.txt", provider.getPath(uriFor(archive, "/docs/hello.txt")).toString());
+        assertEquals("/docs/hello.txt", provider.getPath(ArchiveTestFixtures.entryUri("sample.tar", "/docs/hello.txt")).toString());
         assertThrows(IllegalArgumentException.class, () -> provider.getPath(URI.create("wrong:" + archive.toUri())));
         assertThrows(IllegalArgumentException.class,
                 () -> provider.getPath(uriFor(tempDir.resolve("absent.tar"), "/docs/hello.txt")));
@@ -59,8 +59,7 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
     @Test
     void providerReadsEntriesAndExposesAttributes() throws Exception {
         SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
-        Path archive = tempDir.resolve("sample.tar");
-        ArchiveTestFixtures.createTarArchive(archive, false);
+        Path archive = ArchiveTestFixtures.archivePath("sample.tar");
 
         try (var fileSystem = provider.newFileSystem(archive, Map.of())) {
             Path root = fileSystem.getPath("/");
@@ -84,7 +83,7 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
             }
 
             assertThrows(IOException.class, () -> provider.newDirectoryStream(hello, entry -> true));
-            assertEquals("hello from tar", new String(provider.newInputStream(hello).readAllBytes()));
+            assertEquals("hello from archive", new String(provider.newInputStream(hello).readAllBytes()));
             assertThrows(IOException.class, () -> provider.newInputStream(docs));
 
             ByteBuffer buffer = ByteBuffer.allocate(32);
@@ -92,7 +91,7 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
                 channel.read(buffer);
                 assertTrue(channel.position() > 0);
             }
-            assertEquals("hello from tar", new String(buffer.array(), 0, "hello from tar".length()));
+            assertEquals("hello from archive", new String(buffer.array(), 0, "hello from archive".length()));
             assertThrows(IOException.class, () -> provider.newByteChannel(docs, java.util.Set.of(StandardOpenOption.READ)));
             assertThrows(ReadOnlyFileSystemException.class,
                     () -> provider.newByteChannel(hello, java.util.Set.of(StandardOpenOption.WRITE)));
@@ -110,10 +109,10 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
 
             BasicFileAttributes attributes = provider.readAttributes(hello, BasicFileAttributes.class);
             assertTrue(attributes.isRegularFile());
-            assertEquals("hello from tar".length(), attributes.size());
+            assertEquals("hello from archive".length(), attributes.size());
 
             Map<String, Object> subset = provider.readAttributes(hello, "basic:size,fileKey,lastModifiedTime");
-            assertEquals((long) "hello from tar".length(), subset.get("size"));
+            assertEquals((long) "hello from archive".length(), subset.get("size"));
             assertEquals("/docs/hello.txt", subset.get("fileKey"));
             assertTrue(subset.containsKey("lastModifiedTime"));
             assertEquals(7, provider.readAttributes(rootFile, "*").size());

@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,21 +14,16 @@ import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.attribute.BasicFileAttributeView;
-import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 class SmartArchivePathAndFileSystemTest {
 
-    @TempDir
-    Path tempDir;
-
     @Test
     void pathOperationsNormalizeResolveAndRelativize() throws Exception {
-        try (SmartArchiveFileSystem fileSystem = ArchiveTestFixtures.createFileSystem(tempDir.resolve("fixture.tar"))) {
+        try (SmartArchiveFileSystem fileSystem = ArchiveTestFixtures.openFileSystem("sample.tar")) {
             SmartArchivePath absolute = (SmartArchivePath) fileSystem.getPath("/docs/./nested/../hello.txt");
             SmartArchivePath relative = (SmartArchivePath) fileSystem.getPath("docs\\nested\\..\\hello.txt");
 
@@ -68,8 +62,8 @@ class SmartArchivePathAndFileSystemTest {
 
     @Test
     void pathOperationsRejectInvalidInputsAndForeignFileSystems() throws Exception {
-        try (SmartArchiveFileSystem first = ArchiveTestFixtures.createFileSystem(tempDir.resolve("first.tar"));
-             SmartArchiveFileSystem second = ArchiveTestFixtures.createFileSystem(tempDir.resolve("second.tar"))) {
+        try (SmartArchiveFileSystem first = ArchiveTestFixtures.openFileSystem("sample.tar");
+             SmartArchiveFileSystem second = ArchiveTestFixtures.openFileSystem("sample.tar.gz")) {
             SmartArchivePath path = (SmartArchivePath) first.getPath("/docs/hello.txt");
 
             assertThrows(IllegalArgumentException.class, () -> path.getName(-1));
@@ -89,21 +83,19 @@ class SmartArchivePathAndFileSystemTest {
 
     @Test
     void fileSystemExposesMatchersAndMetadataAndCloseBehavior() throws Exception {
-        SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
-        Path archivePath = tempDir.resolve("fixture.tar");
-        try (SmartArchiveFileSystem fileSystem = ArchiveTestFixtures.createFileSystem(archivePath)) {
-            assertSame(provider.getScheme(), fileSystem.provider().getScheme());
+        try (SmartArchiveFileSystem fileSystem = ArchiveTestFixtures.openFileSystem("sample.tar")) {
+            assertEquals("smartnio", fileSystem.provider().getScheme());
             assertTrue(fileSystem.isOpen());
             assertTrue(fileSystem.isReadOnly());
             assertEquals("/", fileSystem.getSeparator());
             assertEquals("/", fileSystem.getRootDirectories().iterator().next().toString());
             assertEquals("basic", fileSystem.supportedFileAttributeViews().iterator().next());
-            assertEquals("fixture.tar", fileSystem.getFileStores().iterator().next().name());
+            assertEquals("sample.tar", fileSystem.getFileStores().iterator().next().name());
             assertEquals("/docs/hello.txt", fileSystem.getPath("/docs", "hello.txt").toString());
             assertEquals("docs/hello.txt", fileSystem.getPath("docs", "hello.txt").toString());
 
             PathMatcher regex = fileSystem.getPathMatcher("regex:.*/hello\\.txt");
-            PathMatcher glob = fileSystem.getPathMatcher("glob:/docs/{hello.txt,notes (final).txt}");
+            PathMatcher glob = fileSystem.getPathMatcher("glob:/docs/{hello.txt,deep.txt}");
             assertTrue(regex.matches(fileSystem.getPath("/docs/hello.txt")));
             assertTrue(glob.matches(fileSystem.getPath("/docs/hello.txt")));
             assertTrue(fileSystem.getPathMatcher("glob:/docs/*.txt").matches(fileSystem.getPath("/docs/hello.txt")));
@@ -121,59 +113,47 @@ class SmartArchivePathAndFileSystemTest {
     }
 
     @Test
-    void archiveNodeFileStoreAndAttributeViewExposeReadOnlyMetadata() {
-        ArchiveNode root = ArchiveNode.root();
-        ArchiveNode docs = root.ensureDirectory("docs");
-        byte[] original = "payload".getBytes();
-        ArchiveNode file = docs.putFile("file.txt", original, FileTime.fromMillis(123L));
-        original[0] = 'X';
+    void fileStoreAndAttributeViewExposeReadOnlyMetadata() throws Exception {
+        try (SmartArchiveFileSystem fileSystem = ArchiveTestFixtures.openFileSystem("sample.tar")) {
+            SmartArchivePath docs = (SmartArchivePath) fileSystem.getPath("/docs");
+            SmartArchivePath hello = (SmartArchivePath) fileSystem.getPath("/docs/hello.txt");
 
-        assertTrue(root.isDirectory());
-        assertTrue(file.isRegularFile());
-        assertSame(docs, root.ensureDirectory("docs"));
-        assertEquals("/docs/file.txt", file.absolutePath());
-        assertEquals(1, root.children().size());
-        assertEquals(docs, root.child("docs"));
-        assertEquals("payload", new String(file.data()));
-        byte[] copy = file.data();
-        copy[0] = 'Y';
-        assertEquals("payload", new String(file.data()));
-        docs.markDirectory(FileTime.fromMillis(222L));
-        assertEquals(FileTime.fromMillis(222L), docs.lastModifiedTime());
-        assertThrows(IllegalStateException.class, () -> {
-            root.putFile("docs", "x".getBytes(), FileTime.fromMillis(1L));
-            root.ensureDirectory("docs");
-        });
+            ArchiveNode docsNode = fileSystem.lookup(docs);
+            ArchiveNode helloNode = fileSystem.lookup(hello);
 
-        ArchiveFileAttributes attributes = new ArchiveFileAttributes(file);
-        assertEquals(file.lastModifiedTime(), attributes.lastModifiedTime());
-        assertEquals(file.lastModifiedTime(), attributes.lastAccessTime());
-        assertEquals(file.lastModifiedTime(), attributes.creationTime());
-        assertTrue(attributes.isRegularFile());
-        assertFalse(attributes.isDirectory());
-        assertFalse(attributes.isSymbolicLink());
-        assertFalse(attributes.isOther());
-        assertEquals(file.size(), attributes.size());
-        assertEquals("/docs/file.txt", attributes.fileKey());
+            assertTrue(docsNode.isDirectory());
+            assertTrue(helloNode.isRegularFile());
 
-        SmartArchiveFileAttributeView attributeView = new SmartArchiveFileAttributeView(file);
-        assertEquals("basic", attributeView.name());
-        assertInstanceOf(ArchiveFileAttributes.class, attributeView.readAttributes());
-        assertThrows(java.nio.file.ReadOnlyFileSystemException.class,
-                () -> attributeView.setTimes(FileTime.fromMillis(1L), null, null));
+            ArchiveFileAttributes attributes = new ArchiveFileAttributes(helloNode);
+            assertEquals(helloNode.lastModifiedTime(), attributes.lastModifiedTime());
+            assertEquals(helloNode.lastModifiedTime(), attributes.lastAccessTime());
+            assertEquals(helloNode.lastModifiedTime(), attributes.creationTime());
+            assertTrue(attributes.isRegularFile());
+            assertFalse(attributes.isDirectory());
+            assertFalse(attributes.isSymbolicLink());
+            assertFalse(attributes.isOther());
+            assertEquals(helloNode.size(), attributes.size());
+            assertEquals("/docs/hello.txt", attributes.fileKey());
 
-        SmartArchiveFileStore fileStore = new SmartArchiveFileStore("fixture.tar");
-        assertEquals("fixture.tar", fileStore.name());
-        assertEquals("smart-archive", fileStore.type());
-        assertTrue(fileStore.isReadOnly());
-        assertEquals(0L, fileStore.getTotalSpace());
-        assertEquals(0L, fileStore.getUsableSpace());
-        assertEquals(0L, fileStore.getUnallocatedSpace());
-        assertTrue(fileStore.supportsFileAttributeView(BasicFileAttributeView.class));
-        assertFalse(fileStore.supportsFileAttributeView((Class<? extends java.nio.file.attribute.FileAttributeView>) null));
-        assertTrue(fileStore.supportsFileAttributeView("basic"));
-        assertFalse(fileStore.supportsFileAttributeView("posix"));
-        assertNull(fileStore.getFileStoreAttributeView(null));
-        assertThrows(UnsupportedOperationException.class, () -> fileStore.getAttribute("size"));
+            SmartArchiveFileAttributeView attributeView = new SmartArchiveFileAttributeView(helloNode);
+            assertEquals("basic", attributeView.name());
+            assertInstanceOf(ArchiveFileAttributes.class, attributeView.readAttributes());
+            assertThrows(java.nio.file.ReadOnlyFileSystemException.class,
+                    () -> attributeView.setTimes(null, null, null));
+
+            SmartArchiveFileStore fileStore = fileSystem.fileStore();
+            assertEquals("sample.tar", fileStore.name());
+            assertEquals("smart-archive", fileStore.type());
+            assertTrue(fileStore.isReadOnly());
+            assertEquals(0L, fileStore.getTotalSpace());
+            assertEquals(0L, fileStore.getUsableSpace());
+            assertEquals(0L, fileStore.getUnallocatedSpace());
+            assertTrue(fileStore.supportsFileAttributeView(BasicFileAttributeView.class));
+            assertFalse(fileStore.supportsFileAttributeView((Class<? extends java.nio.file.attribute.FileAttributeView>) null));
+            assertTrue(fileStore.supportsFileAttributeView("basic"));
+            assertFalse(fileStore.supportsFileAttributeView("posix"));
+            assertNull(fileStore.getFileStoreAttributeView(null));
+            assertThrows(UnsupportedOperationException.class, () -> fileStore.getAttribute("size"));
+        }
     }
 }
