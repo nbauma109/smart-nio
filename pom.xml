@@ -30,7 +30,7 @@
 
   <scm>
     <connection>scm:git:https://github.com/nbauma109/smart-nio.git</connection>
-    <developerConnection>scm:git:https://github.com/nbauma109/smart-nio.git</developerConnection>
+    <developerConnection>scm:git:ssh://git@github.com/nbauma109/smart-nio.git</developerConnection>
     <url>https://github.com/nbauma109/smart-nio</url>
     <tag>HEAD</tag>
   </scm>
