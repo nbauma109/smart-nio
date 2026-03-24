@@ -13,7 +13,8 @@ final class ArchiveNode {
     private final ArchiveNode parent;
     private final Map<String, ArchiveNode> children;
     private final boolean directory;
-    private byte[] data;
+    private final String entryName;
+    private long size;
     private FileTime lastModifiedTime;
 
     private ArchiveNode(String name, ArchiveNode parent, boolean directory) {
@@ -21,7 +22,8 @@ final class ArchiveNode {
         this.parent = parent;
         this.directory = directory;
         this.children = directory ? new LinkedHashMap<>() : Collections.emptyMap();
-        this.data = new byte[0];
+        this.entryName = buildEntryName(name, parent);
+        this.size = 0L;
         this.lastModifiedTime = FileTime.fromMillis(0L);
     }
 
@@ -42,10 +44,9 @@ final class ArchiveNode {
         return directoryNode;
     }
 
-    ArchiveNode putFile(String childName, byte[] content, FileTime modifiedTime) {
-        Objects.requireNonNull(content, "content");
+    ArchiveNode putFile(String childName, long size, FileTime modifiedTime) {
         ArchiveNode fileNode = new ArchiveNode(childName, this, false);
-        fileNode.data = content.clone();
+        fileNode.size = Math.max(0L, size);
         fileNode.lastModifiedTime = modifiedTime;
         children.put(childName, fileNode);
         return fileNode;
@@ -63,16 +64,16 @@ final class ArchiveNode {
         return name;
     }
 
-    byte[] data() {
-        return data.clone();
-    }
-
     long size() {
-        return directory ? 0L : data.length;
+        return directory ? 0L : size;
     }
 
     FileTime lastModifiedTime() {
         return lastModifiedTime;
+    }
+
+    String entryName() {
+        return entryName;
     }
 
     void markDirectory(FileTime modifiedTime) {
@@ -95,5 +96,13 @@ final class ArchiveNode {
             return "/" + name;
         }
         return parent.absolutePath() + "/" + name;
+    }
+
+    private static String buildEntryName(String name, ArchiveNode parent) {
+        Objects.requireNonNull(name, "name");
+        if (parent == null || parent.entryName.isEmpty()) {
+            return name;
+        }
+        return parent.entryName + "/" + name;
     }
 }

@@ -1,6 +1,5 @@
 package io.github.nbauma109.smartnio;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -94,11 +93,12 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
     @Override
     public InputStream newInputStream(Path path, OpenOption... options) throws IOException {
         ensureReadOnlyOptions(options);
-        ArchiveNode node = requireNode(toSmartPath(path));
+        SmartArchivePath archivePath = toSmartPath(path);
+        ArchiveNode node = requireNode(archivePath);
         if (node.isDirectory()) {
             throw new IOException("Cannot open directory as a stream: " + path);
         }
-        return new ByteArrayInputStream(node.data());
+        return ArchiveLoader.openInputStream(archivePath.getFileSystem().archivePath(), node);
     }
 
     @Override
@@ -110,11 +110,14 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
     public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options,
                                               FileAttribute<?>... attrs) throws IOException {
         ensureReadOnlyOptions(options);
-        ArchiveNode node = requireNode(toSmartPath(path));
+        SmartArchivePath archivePath = toSmartPath(path);
+        ArchiveNode node = requireNode(archivePath);
         if (node.isDirectory()) {
             throw new IOException("Cannot open directory as a byte channel: " + path);
         }
-        return new SeekableInMemoryByteChannel(node.data());
+        try (InputStream inputStream = ArchiveLoader.openInputStream(archivePath.getFileSystem().archivePath(), node)) {
+            return new SeekableInMemoryByteChannel(inputStream.readAllBytes());
+        }
     }
 
     @Override

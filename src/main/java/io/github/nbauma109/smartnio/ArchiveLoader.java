@@ -1,12 +1,16 @@
 package io.github.nbauma109.smartnio;
 
 import java.io.BufferedInputStream;
+import java.io.Closeable;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.util.Date;
+import java.util.Objects;
 
 import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry;
 import org.apache.commons.compress.archivers.sevenz.SevenZFile;
@@ -14,7 +18,6 @@ import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.CompressorException;
 import org.apache.commons.compress.compressors.CompressorStreamFactory;
-import org.apache.commons.compress.utils.IOUtils;
 
 final class ArchiveLoader {
 
@@ -49,8 +52,7 @@ final class ArchiveLoader {
                 if (!tarInputStream.canReadEntryData(entry)) {
                     continue;
                 }
-                byte[] content = entry.isDirectory() ? new byte[0] : IOUtils.toByteArray(tarInputStream);
-                addEntry(root, entry.getName(), entry.isDirectory(), content, entry.getModTime());
+                addEntry(root, entry.getName(), entry.isDirectory(), entry.getSize(), entry.getModTime());
             }
         }
     }
@@ -62,27 +64,20 @@ final class ArchiveLoader {
                 if (!entry.hasStream() && !entry.isDirectory()) {
                     continue;
                 }
-                byte[] content = entry.isDirectory() ? new byte[0] : readSevenZipEntry(sevenZFile, entry);
-                addEntry(root, entry.getName(), entry.isDirectory(), content, entry.getLastModifiedDate());
+                addEntry(root, entry.getName(), entry.isDirectory(), entry.getSize(), entry.getLastModifiedDate());
             }
         }
     }
 
-    private static byte[] readSevenZipEntry(SevenZFile sevenZFile, SevenZArchiveEntry entry) throws IOException {
-        long size = entry.getSize();
-        if (size > Integer.MAX_VALUE) {
-            throw new IOException("Entry too large to load in memory: " + entry.getName());
+    static InputStream openInputStream(Path archivePath, ArchiveNode node) throws IOException {
+        Objects.requireNonNull(archivePath, "archivePath");
+        Objects.requireNonNull(node, "node");
+        if (node.isDirectory()) {
+            throw new IOException("Cannot open a directory entry: " + node.absolutePath());
         }
-        byte[] content = new byte[(int) size];
-        int offset = 0;
-        while (offset < content.length) {
-            int read = sevenZFile.read(content, offset, content.length - offset);
-            if (read < 0) {
-                break;
-            }
-            offset += read;
-        }
-        return content;
+        return isSevenZip(archivePath)
+                ? openSevenZipEntryStream(archivePath, node)
+                : openTarEntryStream(archivePath, node);
     }
 
     private static InputStream wrapCompressedStream(BufferedInputStream inputStream) throws IOException {
@@ -95,7 +90,7 @@ final class ArchiveLoader {
         }
     }
 
-    private static void addEntry(ArchiveNode root, String rawName, boolean directory, byte[] content, Date lastModifiedDate) {
+    private static void addEntry(ArchiveNode root, String rawName, boolean directory, long size, Date lastModifiedDate) {
         String normalized = normalizeEntryName(rawName);
         if (normalized.isEmpty()) {
             return;
@@ -113,7 +108,7 @@ final class ArchiveLoader {
             current.ensureDirectory(leafName).markDirectory(modifiedTime);
             return;
         }
-        current.putFile(leafName, content, modifiedTime);
+        current.putFile(leafName, size, modifiedTime);
     }
 
     private static String normalizeEntryName(String rawName) {
@@ -132,5 +127,147 @@ final class ArchiveLoader {
 
     private static FileTime toFileTime(Date lastModifiedDate) {
         return lastModifiedDate == null ? FileTime.fromMillis(0L) : FileTime.fromMillis(lastModifiedDate.getTime());
+    }
+
+    private static InputStream openTarEntryStream(Path archivePath, ArchiveNode node) throws IOException {
+        TarArchiveInputStream tarInputStream = null;
+        try {
+            tarInputStream = new TarArchiveInputStream(wrapCompressedStream(new BufferedInputStream(Files.newInputStream(archivePath))));
+            TarArchiveEntry entry;
+            while ((entry = tarInputStream.getNextTarEntry()) != null) {
+                if (!tarInputStream.canReadEntryData(entry) || entry.isDirectory()) {
+                    continue;
+                }
+                if (node.entryName().equals(normalizeEntryName(entry.getName()))) {
+                    return new BoundedArchiveEntryInputStream(tarInputStream, entry.getSize());
+                }
+            }
+        } catch (IOException exception) {
+            closeQuietly(tarInputStream);
+            throw exception;
+        } catch (RuntimeException exception) {
+            closeQuietly(tarInputStream);
+            throw exception;
+        }
+        closeQuietly(tarInputStream);
+        throw new NoSuchFileException(node.absolutePath());
+    }
+
+    private static InputStream openSevenZipEntryStream(Path archivePath, ArchiveNode node) throws IOException {
+        SevenZFile sevenZFile = null;
+        try {
+            sevenZFile = new SevenZFile(archivePath.toFile());
+            SevenZArchiveEntry entry;
+            while ((entry = sevenZFile.getNextEntry()) != null) {
+                if ((!entry.hasStream() && !entry.isDirectory()) || entry.isDirectory()) {
+                    continue;
+                }
+                if (node.entryName().equals(normalizeEntryName(entry.getName()))) {
+                    return new SevenZEntryInputStream(sevenZFile, entry.getSize());
+                }
+            }
+        } catch (IOException exception) {
+            closeQuietly(sevenZFile);
+            throw exception;
+        } catch (RuntimeException exception) {
+            closeQuietly(sevenZFile);
+            throw exception;
+        }
+        closeQuietly(sevenZFile);
+        throw new NoSuchFileException(node.absolutePath());
+    }
+
+    private static void closeQuietly(Closeable closeable) {
+        if (closeable == null) {
+            return;
+        }
+        try {
+            closeable.close();
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static final class BoundedArchiveEntryInputStream extends FilterInputStream {
+
+        private long remaining;
+
+        private BoundedArchiveEntryInputStream(InputStream inputStream, long size) {
+            super(inputStream);
+            this.remaining = Math.max(0L, size);
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (remaining == 0L) {
+                return -1;
+            }
+            int value = super.read();
+            if (value >= 0) {
+                remaining--;
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            Objects.checkFromIndexSize(offset, length, buffer.length);
+            if (remaining == 0L) {
+                return -1;
+            }
+            int read = super.read(buffer, offset, (int) Math.min(length, remaining));
+            if (read > 0) {
+                remaining -= read;
+            }
+            return read;
+        }
+    }
+
+    private static final class SevenZEntryInputStream extends InputStream {
+
+        private final SevenZFile sevenZFile;
+        private long remaining;
+        private boolean closed;
+
+        private SevenZEntryInputStream(SevenZFile sevenZFile, long size) {
+            this.sevenZFile = sevenZFile;
+            this.remaining = size < 0L ? Long.MAX_VALUE : size;
+            this.closed = false;
+        }
+
+        @Override
+        public int read() throws IOException {
+            byte[] singleByte = new byte[1];
+            int read = read(singleByte, 0, 1);
+            return read < 0 ? -1 : singleByte[0] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            Objects.checkFromIndexSize(offset, length, buffer.length);
+            ensureOpen();
+            if (remaining == 0L) {
+                return -1;
+            }
+            int read = sevenZFile.read(buffer, offset, (int) Math.min(length, remaining));
+            if (read > 0) {
+                remaining -= read;
+            }
+            return read;
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            sevenZFile.close();
+        }
+
+        private void ensureOpen() throws IOException {
+            if (closed) {
+                throw new IOException("Stream is closed");
+            }
+        }
     }
 }
