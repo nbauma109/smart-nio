@@ -221,6 +221,7 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
 
             @Override
             public void close() {
+                // The directory stream is backed by immutable in-memory metadata, so there is nothing to release.
             }
         };
     }

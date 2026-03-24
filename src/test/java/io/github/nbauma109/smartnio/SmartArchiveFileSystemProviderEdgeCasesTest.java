@@ -38,37 +38,44 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
     Path tempDir;
 
     @Test
-    void providerHandlesMountLifecycleAndUriResolution() throws Exception {
+    void providerRejectsMissingArchivesAndDuplicateMounts() throws Exception {
         SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
         Path missing = tempDir.resolve("missing.tar");
         Path archive = ArchiveTestFixtures.archivePath("sample.tar");
+        URI helloUri = ArchiveTestFixtures.entryUri("sample.tar", "/docs/hello.txt");
 
         assertThrows(NoSuchFileException.class, () -> provider.newFileSystem(missing, Map.of()));
 
         try (var fileSystem = provider.newFileSystem(archive, Map.of())) {
             assertThrows(FileSystemAlreadyExistsException.class, () -> provider.newFileSystem(archive, Map.of()));
-            assertEquals(fileSystem, provider.getFileSystem(ArchiveTestFixtures.entryUri("sample.tar", "/docs/hello.txt")));
+            assertEquals(fileSystem, provider.getFileSystem(helloUri));
         }
-
-        assertThrows(FileSystemNotFoundException.class,
-                () -> provider.getFileSystem(ArchiveTestFixtures.entryUri("sample.tar", "/docs/hello.txt")));
-        assertEquals("/", provider.getPath(URI.create("smartnio:" + archive.toUri())).toString());
-        assertEquals("/docs/hello.txt", provider.getPath(ArchiveTestFixtures.entryUri("sample.tar", "/docs/hello.txt")).toString());
-        assertThrows(IllegalArgumentException.class, () -> provider.getPath(URI.create("wrong:" + archive.toUri())));
-        assertThrows(IllegalArgumentException.class,
-                () -> provider.getPath(uriFor(tempDir.resolve("absent.tar"), "/docs/hello.txt")));
     }
 
     @Test
-    void providerReadsEntriesAndExposesAttributes() throws Exception {
+    void providerResolvesUrisAndReportsMissingMounts() {
+        SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
+        Path archive = ArchiveTestFixtures.archivePath("sample.tar");
+        URI helloUri = ArchiveTestFixtures.entryUri("sample.tar", "/docs/hello.txt");
+        URI archiveUri = URI.create("smartnio:" + archive.toUri());
+        URI wrongSchemeUri = URI.create("wrong:" + archive.toUri());
+        URI absentArchiveUri = uriFor(tempDir.resolve("absent.tar"), "/docs/hello.txt");
+
+        assertThrows(FileSystemNotFoundException.class, () -> provider.getFileSystem(helloUri));
+        assertEquals("/", provider.getPath(archiveUri).toString());
+        assertEquals("/docs/hello.txt", provider.getPath(helloUri).toString());
+        assertThrows(IllegalArgumentException.class, () -> provider.getPath(wrongSchemeUri));
+        assertThrows(IllegalArgumentException.class, () -> provider.getPath(absentArchiveUri));
+    }
+
+    @Test
+    void providerListsDirectoriesAndWrapsFilterFailures() throws Exception {
         SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
         Path archive = ArchiveTestFixtures.archivePath("sample.tar");
 
         try (var fileSystem = provider.newFileSystem(archive, Map.of())) {
             Path root = fileSystem.getPath("/");
-            Path docs = fileSystem.getPath("/docs");
             Path hello = fileSystem.getPath("/docs/hello.txt");
-            Path rootFile = fileSystem.getPath("/root.txt");
 
             try (DirectoryStream<Path> stream = provider.newDirectoryStream(root, entry -> !entry.toString().endsWith("root.txt"))) {
                 List<String> names = java.util.stream.StreamSupport.stream(stream.spliterator(), false)
@@ -86,6 +93,18 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
             }
 
             assertThrows(IOException.class, () -> provider.newDirectoryStream(hello, entry -> true));
+        }
+    }
+
+    @Test
+    void providerReadsStreamsAndChannels() throws Exception {
+        SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
+        Path archive = ArchiveTestFixtures.archivePath("sample.tar");
+
+        try (var fileSystem = provider.newFileSystem(archive, Map.of())) {
+            Path docs = fileSystem.getPath("/docs");
+            Path hello = fileSystem.getPath("/docs/hello.txt");
+
             assertEquals("hello from archive", new String(provider.newInputStream(hello).readAllBytes()));
             assertThrows(IOException.class, () -> provider.newInputStream(docs));
 
@@ -98,8 +117,21 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
             assertThrows(IOException.class, () -> provider.newByteChannel(docs, java.util.Set.of(StandardOpenOption.READ)));
             assertThrows(ReadOnlyFileSystemException.class,
                     () -> provider.newByteChannel(hello, java.util.Set.of(StandardOpenOption.WRITE)));
+        }
+    }
 
-            assertTrue(provider.isSameFile(hello, fileSystem.getPath("/docs/./hello.txt")));
+    @Test
+    void providerExposesAttributesAndReadOnlyBehavior() throws Exception {
+        SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
+        Path archive = ArchiveTestFixtures.archivePath("sample.tar");
+
+        try (var fileSystem = provider.newFileSystem(archive, Map.of())) {
+            Path hello = fileSystem.getPath("/docs/hello.txt");
+            Path rootFile = fileSystem.getPath("/root.txt");
+            Path sameHello = fileSystem.getPath("/docs/./hello.txt");
+            Path newDir = fileSystem.getPath("/newdir");
+
+            assertTrue(provider.isSameFile(hello, sameHello));
             assertFalse(provider.isHidden(hello));
             assertEquals("sample.tar", provider.getFileStore(hello).name());
             provider.checkAccess(hello, AccessMode.READ);
@@ -123,7 +155,7 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
             assertThrows(UnsupportedOperationException.class,
                     () -> provider.readAttributes(hello, (Class<BasicFileAttributes>) null));
             assertThrows(ReadOnlyFileSystemException.class, () -> provider.newOutputStream(hello));
-            assertThrows(ReadOnlyFileSystemException.class, () -> provider.createDirectory(fileSystem.getPath("/newdir")));
+            assertThrows(ReadOnlyFileSystemException.class, () -> provider.createDirectory(newDir));
             assertThrows(ReadOnlyFileSystemException.class, () -> provider.delete(hello));
             assertThrows(ReadOnlyFileSystemException.class, () -> provider.copy(hello, rootFile));
             assertThrows(ReadOnlyFileSystemException.class, () -> provider.move(hello, rootFile));

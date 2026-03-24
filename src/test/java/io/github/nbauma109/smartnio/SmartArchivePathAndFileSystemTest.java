@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.attribute.BasicFileAttributeView;
@@ -22,7 +21,7 @@ import org.junit.jupiter.api.Test;
 class SmartArchivePathAndFileSystemTest {
 
     @Test
-    void pathOperationsNormalizeResolveAndRelativize() throws Exception {
+    void pathNormalizationExposesStructure() throws Exception {
         try (SmartArchiveFileSystem fileSystem = ArchiveTestFixtures.openFileSystem("sample.tar")) {
             SmartArchivePath absolute = (SmartArchivePath) fileSystem.getPath("/docs/./nested/../hello.txt");
             SmartArchivePath relative = (SmartArchivePath) fileSystem.getPath("docs\\nested\\..\\hello.txt");
@@ -39,6 +38,18 @@ class SmartArchivePathAndFileSystemTest {
             assertEquals("/docs/hello.txt", relative.toRealPath().toString());
             assertEquals("/docs/hello.txt", absolute.absolutePath());
             assertEquals(List.of("docs", "hello.txt"), absolute.segments());
+            assertNull(fileSystem.getPath("").getFileName());
+            assertNull(fileSystem.getPath("/").getParent());
+            assertEquals("/", fileSystem.getPath("").toAbsolutePath().toString());
+        }
+    }
+
+    @Test
+    void pathResolutionAndIdentityBehaveAsExpected() throws Exception {
+        try (SmartArchiveFileSystem fileSystem = ArchiveTestFixtures.openFileSystem("sample.tar")) {
+            SmartArchivePath absolute = (SmartArchivePath) fileSystem.getPath("/docs/./nested/../hello.txt");
+            SmartArchivePath relative = (SmartArchivePath) fileSystem.getPath("docs\\nested\\..\\hello.txt");
+
             assertTrue(absolute.startsWith("/docs"));
             assertTrue(absolute.endsWith("hello.txt"));
             assertEquals("hello.txt", fileSystem.getPath("/docs").relativize(absolute).toString());
@@ -54,9 +65,6 @@ class SmartArchivePathAndFileSystemTest {
             assertEquals(absolute, fileSystem.getPath("/docs/hello.txt"));
             assertEquals(absolute.hashCode(), fileSystem.getPath("/docs/hello.txt").hashCode());
             assertNotEquals(absolute, fileSystem.getPath("/docs/nested/deep.txt"));
-            assertNull(fileSystem.getPath("").getFileName());
-            assertNull(fileSystem.getPath("/").getParent());
-            assertEquals("/", fileSystem.getPath("").toAbsolutePath().toString());
         }
     }
 
@@ -65,6 +73,7 @@ class SmartArchivePathAndFileSystemTest {
         try (SmartArchiveFileSystem first = ArchiveTestFixtures.openFileSystem("sample.tar");
              SmartArchiveFileSystem second = ArchiveTestFixtures.openFileSystem("sample.tar.gz")) {
             SmartArchivePath path = (SmartArchivePath) first.getPath("/docs/hello.txt");
+            var watchKinds = new java.nio.file.WatchEvent.Kind<?>[]{StandardWatchEventKinds.ENTRY_CREATE};
 
             assertThrows(IllegalArgumentException.class, () -> path.getName(-1));
             assertThrows(IllegalArgumentException.class, () -> path.getName(2));
@@ -73,10 +82,8 @@ class SmartArchivePathAndFileSystemTest {
             assertThrows(IllegalArgumentException.class, () -> path.startsWith(second.getPath("/docs")));
             assertThrows(IllegalArgumentException.class, () -> path.compareTo(second.getPath("/docs/hello.txt")));
             assertThrows(UnsupportedOperationException.class, path::toFile);
-            assertThrows(UnsupportedOperationException.class,
-                    () -> path.register(null, StandardWatchEventKinds.ENTRY_CREATE));
-            assertThrows(UnsupportedOperationException.class,
-                    () -> path.register(null, new java.nio.file.WatchEvent.Kind<?>[]{StandardWatchEventKinds.ENTRY_CREATE}));
+            assertThrows(UnsupportedOperationException.class, () -> path.register(null, StandardWatchEventKinds.ENTRY_CREATE));
+            assertThrows(UnsupportedOperationException.class, () -> path.register(null, watchKinds));
             assertThrows(InvalidPathException.class, () -> first.getPath("bad" + '\0' + "path"));
         }
     }
@@ -96,6 +103,7 @@ class SmartArchivePathAndFileSystemTest {
 
             PathMatcher regex = fileSystem.getPathMatcher("regex:.*/hello\\.txt");
             PathMatcher glob = fileSystem.getPathMatcher("glob:/docs/{hello.txt,deep.txt}");
+            SmartArchivePath docsPath = (SmartArchivePath) fileSystem.getPath("/docs");
             assertTrue(regex.matches(fileSystem.getPath("/docs/hello.txt")));
             assertTrue(glob.matches(fileSystem.getPath("/docs/hello.txt")));
             assertTrue(fileSystem.getPathMatcher("glob:/docs/*.txt").matches(fileSystem.getPath("/docs/hello.txt")));
@@ -104,16 +112,35 @@ class SmartArchivePathAndFileSystemTest {
             assertThrows(UnsupportedOperationException.class, fileSystem::getUserPrincipalLookupService);
             assertThrows(UnsupportedOperationException.class, fileSystem::newWatchService);
 
-            assertInstanceOf(ArchiveNode.class, fileSystem.lookup((SmartArchivePath) fileSystem.getPath("/docs")));
+            assertInstanceOf(ArchiveNode.class, fileSystem.lookup(docsPath));
             fileSystem.close();
             fileSystem.close();
             assertFalse(fileSystem.isOpen());
-            assertThrows(IllegalStateException.class, () -> fileSystem.lookup((SmartArchivePath) fileSystem.getPath("/docs")));
+            assertThrows(IllegalStateException.class, () -> fileSystem.lookup(docsPath));
         }
     }
 
     @Test
-    void fileStoreAndAttributeViewExposeReadOnlyMetadata() throws Exception {
+    void fileStoreReportsReadOnlyMetadata() throws Exception {
+        try (SmartArchiveFileSystem fileSystem = ArchiveTestFixtures.openFileSystem("sample.tar")) {
+            SmartArchiveFileStore fileStore = fileSystem.fileStore();
+            assertEquals("sample.tar", fileStore.name());
+            assertEquals("smart-archive", fileStore.type());
+            assertTrue(fileStore.isReadOnly());
+            assertEquals(0L, fileStore.getTotalSpace());
+            assertEquals(0L, fileStore.getUsableSpace());
+            assertEquals(0L, fileStore.getUnallocatedSpace());
+            assertTrue(fileStore.supportsFileAttributeView(BasicFileAttributeView.class));
+            assertFalse(fileStore.supportsFileAttributeView((Class<? extends java.nio.file.attribute.FileAttributeView>) null));
+            assertTrue(fileStore.supportsFileAttributeView("basic"));
+            assertFalse(fileStore.supportsFileAttributeView("posix"));
+            assertNull(fileStore.getFileStoreAttributeView(null));
+            assertThrows(UnsupportedOperationException.class, () -> fileStore.getAttribute("size"));
+        }
+    }
+
+    @Test
+    void attributeViewExposesReadOnlyBasicMetadata() throws Exception {
         try (SmartArchiveFileSystem fileSystem = ArchiveTestFixtures.openFileSystem("sample.tar")) {
             SmartArchivePath docs = (SmartArchivePath) fileSystem.getPath("/docs");
             SmartArchivePath hello = (SmartArchivePath) fileSystem.getPath("/docs/hello.txt");
@@ -140,20 +167,6 @@ class SmartArchivePathAndFileSystemTest {
             assertInstanceOf(ArchiveFileAttributes.class, attributeView.readAttributes());
             assertThrows(java.nio.file.ReadOnlyFileSystemException.class,
                     () -> attributeView.setTimes(null, null, null));
-
-            SmartArchiveFileStore fileStore = fileSystem.fileStore();
-            assertEquals("sample.tar", fileStore.name());
-            assertEquals("smart-archive", fileStore.type());
-            assertTrue(fileStore.isReadOnly());
-            assertEquals(0L, fileStore.getTotalSpace());
-            assertEquals(0L, fileStore.getUsableSpace());
-            assertEquals(0L, fileStore.getUnallocatedSpace());
-            assertTrue(fileStore.supportsFileAttributeView(BasicFileAttributeView.class));
-            assertFalse(fileStore.supportsFileAttributeView((Class<? extends java.nio.file.attribute.FileAttributeView>) null));
-            assertTrue(fileStore.supportsFileAttributeView("basic"));
-            assertFalse(fileStore.supportsFileAttributeView("posix"));
-            assertNull(fileStore.getFileStoreAttributeView(null));
-            assertThrows(UnsupportedOperationException.class, () -> fileStore.getAttribute("size"));
         }
     }
 }

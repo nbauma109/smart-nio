@@ -91,7 +91,7 @@ final class SmartArchiveFileSystem extends FileSystem {
     public Path getPath(String first, String... more) {
         StringBuilder builder = new StringBuilder(first == null ? "" : first);
         for (String segment : more) {
-            if (builder.length() > 0 && builder.charAt(builder.length() - 1) != '/') {
+            if (!builder.isEmpty() && builder.charAt(builder.length() - 1) != '/') {
                 builder.append('/');
             }
             builder.append(segment);

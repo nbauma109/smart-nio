@@ -292,6 +292,7 @@ final class ArchiveLoader {
         try {
             closeable.close();
         } catch (IOException ignored) {
+            // Best-effort cleanup only. The original failure path must not be masked by a secondary close failure.
         }
     }
 
@@ -355,6 +356,11 @@ final class ArchiveLoader {
         private CloseOnCloseInputStream(InputStream inputStream, Closeable closeable) {
             super(inputStream);
             this.closeable = closeable;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            return super.read(buffer, offset, length);
         }
 
         @Override

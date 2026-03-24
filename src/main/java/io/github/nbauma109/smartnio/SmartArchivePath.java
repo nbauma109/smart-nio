@@ -310,21 +310,14 @@ final class SmartArchivePath implements Path {
         String[] parts = sanitized.split("/");
         Deque<String> stack = new ArrayDeque<>();
         for (String part : parts) {
-            if (part.isEmpty() || ".".equals(part)) {
-                continue;
+            if (shouldSkipSegment(part)) {
+                // Ignore repeated separators and explicit current-directory markers.
+            } else if ("..".equals(part)) {
+                applyParentSegment(stack, absolute);
+            } else {
+                validateSegment(rawPath, part);
+                stack.addLast(part);
             }
-            if ("..".equals(part)) {
-                if (!stack.isEmpty() && !"..".equals(stack.peekLast())) {
-                    stack.removeLast();
-                } else if (!absolute) {
-                    stack.addLast(part);
-                }
-                continue;
-            }
-            if (part.indexOf('\0') >= 0) {
-                throw new InvalidPathException(rawPath, "NUL character not allowed");
-            }
-            stack.addLast(part);
         }
         StringJoiner joiner = new StringJoiner("/");
         for (String segment : stack) {
@@ -335,5 +328,23 @@ final class SmartArchivePath implements Path {
             return joined.isEmpty() ? "/" : "/" + joined;
         }
         return joined;
+    }
+
+    private static boolean shouldSkipSegment(String part) {
+        return part.isEmpty() || ".".equals(part);
+    }
+
+    private static void applyParentSegment(Deque<String> stack, boolean absolute) {
+        if (!stack.isEmpty() && !"..".equals(stack.peekLast())) {
+            stack.removeLast();
+        } else if (!absolute) {
+            stack.addLast("..");
+        }
+    }
+
+    private static void validateSegment(String rawPath, String part) {
+        if (part.indexOf('\0') >= 0) {
+            throw new InvalidPathException(rawPath, "NUL character not allowed");
+        }
     }
 }
