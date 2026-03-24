@@ -32,4 +32,4 @@ jobs:
         with:
           files: ./target/site/jacoco/jacoco.xml
           use_oidc: true
-          fail_ci_if_error: false
+          fail_ci_if_error: true
