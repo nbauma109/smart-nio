@@ -1,5 +1,6 @@
 ## smart-nio
 
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.nbauma109/smart-nio.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.nbauma109/smart-nio)
 [![codecov](https://codecov.io/gh/nbauma109/smart-nio/graph/badge.svg?branch=master)](https://codecov.io/gh/nbauma109/smart-nio)
 
 An extension of the Java NIO API for filesystems backed by archives such as `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, and `7z`.
