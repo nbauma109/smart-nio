@@ -1,0 +1,24 @@
+name: Publish GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: gh release create "${GITHUB_REF_NAME}" --generate-notes --verify-tag
