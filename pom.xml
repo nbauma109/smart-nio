@@ -4,7 +4,7 @@
 
   <groupId>io.github.nbauma109</groupId>
   <artifactId>smart-nio</artifactId>
-  <version>0.1.1-SNAPSHOT</version>
+  <version>0.1.1</version>
   <name>smart-nio</name>
   <description>Extended Java NIO filesystem support for archive formats beyond ZIP.</description>
   <url>https://github.com/nbauma109/smart-nio</url>
@@ -30,7 +30,7 @@
     <connection>scm:git:https://github.com/nbauma109/smart-nio.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/nbauma109/smart-nio.git</developerConnection>
     <url>https://github.com/nbauma109/smart-nio</url>
-    <tag>HEAD</tag>
+    <tag>0.1.1</tag>
   </scm>
 
   <properties>
