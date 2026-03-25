@@ -39,7 +39,7 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <junit.version>5.10.2</junit.version>
     <commons.compress.version>1.28.0</commons.compress.version>
-    <xz.version>1.10</xz.version>
+    <xz.version>1.12</xz.version>
     <jacoco.version>0.8.14</jacoco.version>
     <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
     <maven.source.plugin.version>3.4.0</maven.source.plugin.version>
