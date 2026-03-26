@@ -56,7 +56,8 @@ final class SmartArchiveFileStore extends FileStore {
 
     @Override
     public boolean supportsFileAttributeView(Class<? extends FileAttributeView> type) {
-        return type != null && java.nio.file.attribute.BasicFileAttributeView.class.isAssignableFrom(type);
+        return type == java.nio.file.attribute.BasicFileAttributeView.class
+                || type == SmartArchiveFileAttributeView.class;
     }
 
     @Override

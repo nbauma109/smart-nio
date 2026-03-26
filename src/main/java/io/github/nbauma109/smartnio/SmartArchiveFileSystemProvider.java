@@ -275,7 +275,7 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
 
     @Override
     public <V extends FileAttributeView> V getFileAttributeView(Path path, Class<V> type, LinkOption... options) {
-        if (type == null || !BasicFileAttributeView.class.isAssignableFrom(type)) {
+        if (type != BasicFileAttributeView.class && type != SmartArchiveFileAttributeView.class) {
             return null;
         }
         ArchiveNode node = requireNodeUnchecked(toSmartPath(path));
@@ -285,7 +285,7 @@ public final class SmartArchiveFileSystemProvider extends FileSystemProvider {
     @Override
     public <A extends BasicFileAttributes> A readAttributes(Path path, Class<A> type, LinkOption... options)
             throws IOException {
-        if (type == null || !BasicFileAttributes.class.isAssignableFrom(type)) {
+        if (type != BasicFileAttributes.class && type != ArchiveFileAttributes.class) {
             throw new UnsupportedOperationException("Only basic attributes are supported");
         }
         return type.cast(new ArchiveFileAttributes(requireNode(toSmartPath(path))));

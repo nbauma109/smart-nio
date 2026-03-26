@@ -24,6 +24,8 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileOwnerAttributeView;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFileAttributes;
 import java.util.List;
 import java.util.Map;
 
@@ -142,11 +144,13 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
             BasicFileAttributeView view = provider.getFileAttributeView(hello, BasicFileAttributeView.class);
             assertNotNull(view);
             assertNull(provider.getFileAttributeView(hello, FileOwnerAttributeView.class));
+            assertNull(provider.getFileAttributeView(hello, PosixFileAttributeView.class));
             assertNull(provider.getFileAttributeView(hello, null));
 
             BasicFileAttributes attributes = provider.readAttributes(hello, BasicFileAttributes.class);
             assertTrue(attributes.isRegularFile());
             assertEquals("hello from archive".length(), attributes.size());
+            assertThrows(UnsupportedOperationException.class, () -> provider.readAttributes(hello, PosixFileAttributes.class));
 
             Map<String, Object> subset = provider.readAttributes(hello, "basic:size,fileKey,lastModifiedTime");
             assertEquals((long) "hello from archive".length(), subset.get("size"));
@@ -163,6 +167,21 @@ class SmartArchiveFileSystemProviderEdgeCasesTest {
             assertThrows(ReadOnlyFileSystemException.class, () -> provider.move(hello, rootFile));
             assertThrows(ReadOnlyFileSystemException.class, () -> provider.setAttribute(hello, "basic:size", 1L));
             assertThrows(IllegalArgumentException.class, () -> provider.toSmartPath(tempDir));
+        }
+    }
+
+    @Test
+    void filesCopyToDefaultFileSystemDoesNotRequestUnsupportedPosixViewFromArchiveProvider() throws Exception {
+        SmartArchiveFileSystemProvider provider = new SmartArchiveFileSystemProvider();
+        Path archive = ArchiveTestFixtures.archivePath("sample.tar");
+        Path target = tempDir.resolve("hello-copy.txt");
+
+        try (var fileSystem = provider.newFileSystem(archive, Map.of())) {
+            Path hello = fileSystem.getPath("/docs/hello.txt");
+
+            Files.copy(hello, target);
+
+            assertEquals("hello from archive", Files.readString(target));
         }
     }
 
